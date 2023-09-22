@@ -3,6 +3,7 @@ from math import floor
 from time import time
 from argparse import ArgumentParser
 from os.path import dirname
+from concurrent.futures import ThreadPoolExecutor, as_completed
 #import argparse
 #import logging
 
@@ -41,18 +42,40 @@ def chunk_write_subtitles(result, filename):
         file.write(to_write)
 
 
-model = None
-
-
-def transcribe(file: str, beam_size: int = 5, task: str = "transcribe", language=None, vad_filter: bool = True):
-    global model
+def transcribe(model, file: str, beam_size: int = 5, task: str = "transcribe", language=None, vad_filter: bool = True):
     segments, info = model.transcribe(file, beam_size=beam_size, task=task, language=language, vad_filter=vad_filter)
-    return info._asdict(), segments
+    return model, info._asdict(), segments
+
+
+def process_file(model, file, args):
+    # logging.debug(f"Analysing {file}")
+    print(f"\nProcessing {file}")
+    model, info, segments = transcribe(model, file, beam_size=args.beam_size, task=args.task,
+                                       vad_filter=args.vad_filter, language=args.language)
+    # logging.debug(f"File analysed with info {info}")
+    print(f"Detected language {info.get('language')} with {info.get('language_probability')} probability")
+    print(f"Transcribing Duration of {info.get('duration_after_vad')} seconds")
+    print(f"Beginning transcription of {file}")
+    # logging.info("Starting transcription")
+    start = time()
+
+    result = []
+    for i in segments:
+        seg = i._asdict()
+        result.append(seg)
+        percent_complete = round((float(seg.get('end')) / float(info.get('duration')) * 100), 2)
+        print(f"{percent_complete}% {round(seg.get('end'), 2)}/{round(info.get('duration'), 2)} seconds", end="\r")
+
+    end = time()
+    # logging.info("Finished transcription")
+    print(f"Finished transcription of {file} in {round(end - start, 3)} seconds")
+    print(f"Writing subtitles to {file}.srt")
+    write_subtitles(result, f"{file}.srt")
+    print(f"Finished {file}\n")
+    return model
 
 
 def main():
-    global model
-    print()
     parser = ArgumentParser(prog="Optical Whisper",
                                      description="Transcribes/Translate audio")
     parser.add_argument("files", type=str, nargs="+",
@@ -65,8 +88,8 @@ def main():
                         help="CPU threads for cpu compute")
     parser.add_argument("--device", type=str, choices=("cuda", "cpu"), default="cuda",
                         help="Device to run on")
-    parser.add_argument("--device-index", type=list, default=[0],
-                        help="List of cuda devices index")
+    parser.add_argument("--device-index", type=str, default="0",
+                        help="comma delimited list of cuda devices index")
     parser.add_argument("--language", type=str, default=None,
                         help="Specify audio language")
     parser.add_argument("--model", type=str, choices=MODELS, default="large-v2",
@@ -78,39 +101,33 @@ def main():
     args = parser.parse_args()
 
     whisper_model = f"{dirname(__file__)}/models/{args.compute_type}/{args.model}"
-
+    args.device_index = [int(i) for i in args.device_index.split(",")]
     #logging.info(f"Initialising with the following args {args}")
     print("Initialising Model")
     #logging.debug("Loading model")
-    model = WhisperModel(whisper_model, device=args.device, compute_type=args.compute_type, device_index=args.device_index, local_files_only=True, cpu_threads=args.cpu_threads)
+    model = WhisperModel(whisper_model, device=args.device, compute_type=args.compute_type,
+                         device_index=args.device_index, local_files_only=True, cpu_threads=args.cpu_threads)
     #logging.debug("Model Loaded")
+    print(len(args.device_index))
+    print(len(args.files))
+    if len(args.files) <= 1 or (len(args.device_index) <= 1 or args.cpu_threads <= 1):
+        for file in args.files:
+            process_file(model, file, args)
+    elif len(args.device_index) > 1:
+        with ThreadPoolExecutor(max_workers=len(args.device_index)) as thread_executor:
 
-    for file in args.files:
-        #logging.debug(f"Analysing {file}")
-        print(f"\nProcessing {file}")
-        info, segments = transcribe(file, beam_size=args.beam_size, task=args.task, vad_filter=args.vad_filter,
-                                    language=args.language)
-        #logging.debug(f"File analysed with info {info}")
-        print(f"Detected language {info.get('language')} with {info.get('language_probability')} probability")
-        print(f"Transcribing Duration of {info.get('duration_after_vad')} seconds")
-        print(f"Beginning transcription of {file}")
-        #logging.info("Starting transcription")
-        start = time()
+            result = {thread_executor.submit(process_file, model, file, args): file for file in args.files}
 
-        result = []
-        for i in segments:
-            seg = i._asdict()
-            result.append(seg)
-            percent_complete = round((float(seg.get('end')) / float(info.get('duration')) * 100), 2)
-            print(f"{percent_complete}% {round(seg.get('end'), 2)}/{round(info.get('duration'), 2)} seconds", end="\r")
+            for _ in as_completed(result):
+                pass
 
-        end = time()
-        #logging.info("Finished transcription")
-        print(f"Finished transcription of {file} in {round(end - start, 3)} seconds")
-        print(f"Writing subtitles to {file}.srt")
-        write_subtitles(result, f"{file}.srt")
-        print(f"Finished {file}\n")
+    elif args.cpu_threads > 1:
+        with ThreadPoolExecutor(max_workers=args.cpu_threads) as thread_executor:
+            result = thread_executor.map(process_file, args.files)
+        [i.result() for i in result]
+
     print("Finished Processing all Files, Exiting...")
+    del model
 
 
 if __name__ == '__main__':
