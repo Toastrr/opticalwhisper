@@ -3,7 +3,7 @@ from math import floor
 from time import time
 from argparse import ArgumentParser
 from os.path import dirname
-from concurrent.futures import ThreadPoolExecutor, as_completed
+from concurrent.futures import ThreadPoolExecutor
 #import argparse
 #import logging
 
@@ -49,7 +49,7 @@ def transcribe(model, file: str, beam_size: int = 5, task: str = "transcribe", l
 
 def process_file(model, file, args):
     # logging.debug(f"Analysing {file}")
-    print(f"\n[{file}]: Processing")
+    print(f"\n[{file}]: Analysing")
     model, info, segments = transcribe(model, file, beam_size=args.beam_size, task=args.task,
                                        vad_filter=args.vad_filter, language=args.language)
     # logging.debug(f"File analysed with info {info}")
@@ -72,7 +72,7 @@ def process_file(model, file, args):
     print(f"[{file}]: Finished transcription in {round(end - start, 3)} seconds")
     print(f"[{file}]: Writing subtitles to {file}.srt")
     write_subtitles(result, f"{file}.srt")
-    print(f"\n[{file}]: Completed\n")
+    print(f"[{file}]: Completed")
     return model
 
 
@@ -103,30 +103,27 @@ def main():
     whisper_model = f"{dirname(__file__)}/models/{args.compute_type}/{args.model}"
     args.device_index = [int(i) for i in str(args.device_index).split(",")]
     #logging.info(f"Initialising with the following args {args}")
-    print("Initialising Model")
+    print("Loading Model...")
     #logging.debug("Loading model")
     model = WhisperModel(whisper_model, device=args.device, compute_type=args.compute_type,
                          device_index=args.device_index, local_files_only=True, cpu_threads=args.cpu_threads)
     #logging.debug("Model Loaded")
-    print(len(args.device_index))
-    print(len(args.files))
+    print("Loaded Model")
+    print("Begin Processing Files...\n")
+
     if len(args.files) <= 1 or (len(args.device_index) <= 1 or args.cpu_threads <= 1):
         for file in args.files:
             process_file(model, file, args)
     elif len(args.device_index) > 1:
         with ThreadPoolExecutor(max_workers=len(args.device_index)) as thread_executor:
-
-            result = {thread_executor.submit(process_file, model, file, args): file for file in args.files}
-
-            for _ in as_completed(result):
-                pass
-
+            for file in args.files:
+                thread_executor.submit(process_file, model, file, args)
     elif args.cpu_threads > 1:
         with ThreadPoolExecutor(max_workers=args.cpu_threads) as thread_executor:
-            result = thread_executor.map(process_file, args.files)
-        [i.result() for i in result]
+            for file in args.files:
+                thread_executor.submit(process_file, model, file, args)
 
-    print("Finished Processing all Files, Exiting...")
+    print("\nFinished Processing all Files, Exiting...")
     del model
 
 
