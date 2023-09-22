@@ -64,7 +64,8 @@ def process_file(model, file, args):
         seg = i._asdict()
         result.append(seg)
         percent_complete = round((float(seg.get('end')) / float(info.get('duration')) * 100), 2)
-        print(f"{percent_complete}% {round(seg.get('end'), 2)}/{round(info.get('duration'), 2)} seconds", end="\r")
+        print(f"[[{file}]: {percent_complete}%    {round(seg.get('end'), 2)}/{round(info.get('duration'), 2)} seconds",
+              end="\r")
 
     end = time()
     # logging.info("Finished transcription")
@@ -101,7 +102,7 @@ def main():
     args = parser.parse_args()
 
     whisper_model = f"{dirname(__file__)}/models/{args.compute_type}/{args.model}"
-    args.device_index = [int(i) for i in args.device_index.split(",")]
+    args.device_index = [int(i) for i in str(args.device_index).split(",")]
     #logging.info(f"Initialising with the following args {args}")
     print("Initialising Model")
     #logging.debug("Loading model")
