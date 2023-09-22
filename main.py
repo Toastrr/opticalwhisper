@@ -3,9 +3,7 @@ from math import floor
 from time import time
 from argparse import ArgumentParser
 from os.path import dirname
-from concurrent.futures import ThreadPoolExecutor, as_completed
-#import argparse
-#import logging
+
 
 LANGUAGE_CODES = ("af", "am", "ar", "as", "az", "ba", "be", "bg", "bn", "bo", "br", "bs", "ca", "cs", "cy", "da", "de",
                   "el", "en", "es", "et", "eu", "fa", "fi", "fo", "fr", "gl", "gu", "ha", "haw", "he", "hi", "hr", "ht",
@@ -48,17 +46,14 @@ def transcribe(model, file: str, beam_size: int = 5, task: str = "transcribe", l
 
 
 def process_file(model, file, args):
-    # logging.debug(f"Analysing {file}")
     print(f"\n[{file}]: Processing")
     model, info, segments = transcribe(model, file, beam_size=args.beam_size, task=args.task,
                                        vad_filter=args.vad_filter, language=args.language)
-    # logging.debug(f"File analysed with info {info}")
     print(f"[{file}]: Detected language {info.get('language')} with {info.get('language_probability')} probability")
     print(f"[{file}]: Transcribing Duration of {info.get('duration_after_vad')} seconds")
-    print(f"[{file}]: Beginning transcription")
-    # logging.info("Starting transcription")
-    start = time()
 
+    print(f"[{file}]: Beginning transcription")
+    start = time()
     result = []
     for i in segments:
         seg = i._asdict()
@@ -66,13 +61,12 @@ def process_file(model, file, args):
         percent_complete = round((float(seg.get('end')) / float(info.get('duration')) * 100), 2)
         print(f"[{file}]: {percent_complete}%    {round(seg.get('end'), 2)}/{round(info.get('duration'), 2)} seconds",
               end="\r")
-
     end = time()
-    # logging.info("Finished transcription")
     print(f"[{file}]: Finished transcription in {round(end - start, 3)} seconds")
+
     print(f"[{file}]: Writing subtitles to {file}.srt")
     write_subtitles(result, f"{file}.srt")
-    print(f"\n[{file}]: Completed\n")
+    print(f"[{file}]: Completed\n")
     return model
 
 
@@ -82,14 +76,6 @@ def main():
                         help="Files to process")
     parser.add_argument("--beam-size", type=int, default=5,
                         help="Beam size")
-    parser.add_argument("--compute-type", type=str, choices=("float16", "int8_float16", "int8"), default="float16",
-                        help="Compute type")
-    parser.add_argument("--cpu-threads", type=int, default=4,
-                        help="CPU threads for cpu compute")
-    parser.add_argument("--device", type=str, choices=("cuda", "cpu"), default="cuda",
-                        help="Device to run on")
-    parser.add_argument("--device-index", type=str, default="0",
-                        help="comma delimited list of cuda devices index")
     parser.add_argument("--language", type=str, default=None,
                         help="Specify audio language")
     parser.add_argument("--model", type=str, choices=MODELS, default="large-v2",
@@ -100,34 +86,16 @@ def main():
                         help="Enable or disable the vad filter")
     args = parser.parse_args()
 
-    whisper_model = f"{dirname(__file__)}/models/{args.compute_type}/{args.model}"
-    args.device_index = [int(i) for i in str(args.device_index).split(",")]
-    #logging.info(f"Initialising with the following args {args}")
-    print("Initialising Model")
-    #logging.debug("Loading model")
-    model = WhisperModel(whisper_model, device=args.device, compute_type=args.compute_type,
-                         device_index=args.device_index, local_files_only=True, cpu_threads=args.cpu_threads)
-    #logging.debug("Model Loaded")
-    print(len(args.device_index))
-    print(len(args.files))
-    if len(args.files) <= 1 or (len(args.device_index) <= 1 or args.cpu_threads <= 1):
-        for file in args.files:
-            process_file(model, file, args)
-    elif len(args.device_index) > 1:
-        with ThreadPoolExecutor(max_workers=len(args.device_index)) as thread_executor:
+    whisper_model = f"{dirname(__file__)}/models/float16/{args.model}"
+    print("Loading Model...")
 
-            result = {thread_executor.submit(process_file, model, file, args): file for file in args.files}
-
-            for _ in as_completed(result):
-                pass
-
-    elif args.cpu_threads > 1:
-        with ThreadPoolExecutor(max_workers=args.cpu_threads) as thread_executor:
-            result = thread_executor.map(process_file, args.files)
-        [i.result() for i in result]
-
+    model = WhisperModel(whisper_model, device="cuda", compute_type="float16",
+                         device_index=[0], local_files_only=True)
+    print("Loaded Model")
+    for file in args.files:
+        process_file(model, file, args)
     print("Finished Processing all Files, Exiting...")
-    del model
+    return model
 
 
 if __name__ == '__main__':
