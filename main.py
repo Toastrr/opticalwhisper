@@ -49,13 +49,13 @@ def transcribe(model, file: str, beam_size: int = 5, task: str = "transcribe", l
 
 def process_file(model, file, args):
     # logging.debug(f"Analysing {file}")
-    print(f"\nProcessing {file}")
+    print(f"\n[{file}]: Processing")
     model, info, segments = transcribe(model, file, beam_size=args.beam_size, task=args.task,
                                        vad_filter=args.vad_filter, language=args.language)
     # logging.debug(f"File analysed with info {info}")
-    print(f"Detected language {info.get('language')} with {info.get('language_probability')} probability")
-    print(f"Transcribing Duration of {info.get('duration_after_vad')} seconds")
-    print(f"Beginning transcription of {file}")
+    print(f"[{file}]: Detected language {info.get('language')} with {info.get('language_probability')} probability")
+    print(f"[{file}]: Transcribing Duration of {info.get('duration_after_vad')} seconds")
+    print(f"[{file}]: Beginning transcription")
     # logging.info("Starting transcription")
     start = time()
 
@@ -64,21 +64,20 @@ def process_file(model, file, args):
         seg = i._asdict()
         result.append(seg)
         percent_complete = round((float(seg.get('end')) / float(info.get('duration')) * 100), 2)
-        print(f"[[{file}]: {percent_complete}%    {round(seg.get('end'), 2)}/{round(info.get('duration'), 2)} seconds",
+        print(f"[{file}]: {percent_complete}%    {round(seg.get('end'), 2)}/{round(info.get('duration'), 2)} seconds",
               end="\r")
 
     end = time()
     # logging.info("Finished transcription")
-    print(f"Finished transcription of {file} in {round(end - start, 3)} seconds")
-    print(f"Writing subtitles to {file}.srt")
+    print(f"[{file}]: Finished transcription in {round(end - start, 3)} seconds")
+    print(f"[{file}]: Writing subtitles to {file}.srt")
     write_subtitles(result, f"{file}.srt")
-    print(f"Finished {file}\n")
+    print(f"\n[{file}]: Completed\n")
     return model
 
 
 def main():
-    parser = ArgumentParser(prog="Optical Whisper",
-                                     description="Transcribes/Translate audio")
+    parser = ArgumentParser(prog="Optical Whisper", description="Transcribes/Translate audio")
     parser.add_argument("files", type=str, nargs="+",
                         help="Files to process")
     parser.add_argument("--beam-size", type=int, default=5,
