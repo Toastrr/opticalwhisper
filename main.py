@@ -2,6 +2,7 @@ from faster_whisper import WhisperModel
 from math import floor
 from time import time
 from argparse import ArgumentParser
+from os.path import dirname
 #import argparse
 #import logging
 
@@ -51,7 +52,7 @@ def transcribe(file: str, beam_size: int = 5, task: str = "transcribe", language
 
 def main():
     global model
-
+    print()
     parser = ArgumentParser(prog="Optical Whisper",
                                      description="Transcribes/Translate audio")
     parser.add_argument("files", type=str, nargs="+",
@@ -60,8 +61,12 @@ def main():
                         help="Beam size")
     parser.add_argument("--compute-type", type=str, choices=("float16", "int8_float16", "int8"), default="float16",
                         help="Compute type")
+    parser.add_argument("--cpu-threads", type=int, default=4,
+                        help="CPU threads for cpu compute")
     parser.add_argument("--device", type=str, choices=("cuda", "cpu"), default="cuda",
                         help="Device to run on")
+    parser.add_argument("--device-index", type=list, default=[0],
+                        help="List of cuda devices index")
     parser.add_argument("--language", type=str, default=None,
                         help="Specify audio language")
     parser.add_argument("--model", type=str, choices=MODELS, default="large-v2",
@@ -72,12 +77,12 @@ def main():
                         help="Enable or disable the vad filter")
     args = parser.parse_args()
 
-    whisper_model = f"models/{args.compute_type}/{args.model}"
+    whisper_model = f"{dirname(__file__)}/models/{args.compute_type}/{args.model}"
 
-    #logging.info("Initialising")
+    #logging.info(f"Initialising with the following args {args}")
     print("Initialising Model")
     #logging.debug("Loading model")
-    model = WhisperModel(whisper_model, device=args.device, compute_type=args.compute_type, device_index=[0, 1, 2, 3])
+    model = WhisperModel(whisper_model, device=args.device, compute_type=args.compute_type, device_index=args.device_index, local_files_only=True, cpu_threads=args.cpu_threads)
     #logging.debug("Model Loaded")
 
     for file in args.files:
