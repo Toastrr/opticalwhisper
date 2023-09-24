@@ -1,9 +1,10 @@
 from faster_whisper import WhisperModel
 from math import floor
-from time import time
+from time import monotonic
 from argparse import ArgumentParser
 from os.path import dirname
 from concurrent.futures import ThreadPoolExecutor
+
 #import argparse
 #import logging
 
@@ -16,7 +17,7 @@ LANGUAGE_CODES = ("af", "am", "ar", "as", "az", "ba", "be", "bg", "bn", "bo", "b
 MODELS = ("large-v2", "large", "medium", "medium.en", "small", "small.en", "base", "base.en", "tiny", "tiny.en")
 
 
-def convert_timestamp(seconds: int) -> str:
+def convert_timestamp(seconds: float) -> str:
     remaining_seconds = seconds
     hours = floor(remaining_seconds / 3600)
     remaining_seconds = remaining_seconds - (hours * 3600)
@@ -26,6 +27,15 @@ def convert_timestamp(seconds: int) -> str:
             f"{f'{(remaining_seconds - floor(remaining_seconds)):.3f}'[2:]}")
 
 
+def convert_seconds_to_hms(seconds: float) -> str:
+    remaining_seconds = seconds
+    hours = floor(remaining_seconds / 3600)
+    remaining_seconds = remaining_seconds - (hours * 3600)
+    minutes = floor(remaining_seconds / 60)
+    remaining_seconds = remaining_seconds - (minutes * 60)
+    return f"{hours:02d}:{minutes:02d}:{floor(remaining_seconds):02d}"
+
+
 def write_subtitles(whisper_results, filename):
     with open(filename, "w", encoding="utf-8") as file:
         file.write("1\n00:00:00,000 --> 00:00:03,000\n[Optical Whisper generated subtitles]\n\n")
@@ -33,13 +43,17 @@ def write_subtitles(whisper_results, filename):
             start = convert_timestamp(i.get('start'))
             end = convert_timestamp(i.get('end'))
             file.write(f"{i.get('id') + 1}\n{start} --> {end}\n{i.get('text').lstrip()}\n\n")
+        last = whisper_results[-1]
+        file.write(f"{last.get('id')+1}\n"
+                   f"{convert_timestamp(last.get('start'))} --> {convert_timestamp(last.get('end'))}\n"
+                   f"[Optical Whisper generated subtitles]\n")
 
 
 def chunk_write_subtitles(result, filename):
     with open(filename, "a", encoding="utf-8") as file:
-        i = result
-        to_write = f"{i.id}\n{convert_timestamp(i.start)} --> {convert_timestamp(i.end)}\n{i.text.lstrip()}\n\n"
-        file.write(to_write)
+        start = convert_timestamp(result.get('start'))
+        end = convert_timestamp(result.get('end'))
+        file.write(f"{result.get('id') + 1}\n{start} --> {end}\n{result.get('text').lstrip()}\n\n")
 
 
 def transcribe(model, file: str, beam_size: int = 5, task: str = "transcribe", language=None, vad_filter: bool = True):
@@ -57,17 +71,21 @@ def process_file(model, file, args):
     print(f"[{file}]: Transcribing Duration of {info.get('duration_after_vad')} seconds")
     print(f"[{file}]: Beginning transcription")
     # logging.info("Starting transcription")
-    start = time()
-
+    start = monotonic()
     result = []
     for i in segments:
         seg = i._asdict()
         result.append(seg)
         percent_complete = round((float(seg.get('end')) / float(info.get('duration')) * 100), 2)
-        print(f"[{file}]: {percent_complete}%    {round(seg.get('end'), 2)}/{round(info.get('duration'), 2)} seconds",
-              end="\r")
+        elapsed_seconds = (monotonic() - start)
+        amount_remaining = (100 - percent_complete) / 100
+        estimated_remaining_seconds = amount_remaining * elapsed_seconds
+        print(f"[{file}]: Elapsed time: {convert_seconds_to_hms(elapsed_seconds)} "
+              f"Completed: {percent_complete}% {round(seg.get('end'), 2)}/{round(info.get('duration'), 2)} seconds "
+              f"Estimated {convert_seconds_to_hms(estimated_remaining_seconds)} remaining"
+              , end="\r")
 
-    end = time()
+    end = monotonic()
     # logging.info("Finished transcription")
     print(f"[{file}]: Finished transcription in {round(end - start, 3)} seconds")
     print(f"[{file}]: Writing subtitles to {file}.srt")
@@ -82,7 +100,8 @@ def main():
                         help="Files to process")
     parser.add_argument("--beam-size", type=int, default=5,
                         help="Beam size")
-    parser.add_argument("--compute-type", type=str, choices=("float16", "int8_float16", "int8"), default="float16",
+    parser.add_argument("--compute-type", type=str, choices=("float16", "int8_float16", "int8", "float32"),
+                        default="float16",
                         help="Compute type")
     parser.add_argument("--cpu-threads", type=int, default=4,
                         help="CPU threads for cpu compute")
