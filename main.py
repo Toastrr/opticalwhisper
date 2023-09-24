@@ -63,7 +63,7 @@ def transcribe(model, file: str, beam_size: int = 5, task: str = "transcribe", l
 
 def process_file(model, file, args):
     # logging.debug(f"Analysing {file}")
-    print(f"\n[{file}]: Analysing")
+    print(f"\n[{file}]: Analysing...")
     model, info, segments = transcribe(model, file, beam_size=args.beam_size, task=args.task,
                                        vad_filter=args.vad_filter, language=args.language)
     # logging.debug(f"File analysed with info {info}")
@@ -76,12 +76,11 @@ def process_file(model, file, args):
     for i in segments:
         seg = i._asdict()
         result.append(seg)
-        percent_complete = round((float(seg.get('end')) / float(info.get('duration')) * 100), 2)
         elapsed_seconds = (monotonic() - start)
-        amount_remaining = (100 - percent_complete) / 100
-        estimated_remaining_seconds = amount_remaining * elapsed_seconds
+        percent_completed = round((float(seg.get('end')) / float(info.get('duration')) * 100), 2)
+        estimated_remaining_seconds = ((100 / percent_completed) - 1) * elapsed_seconds
         print(f"[{file}]: Elapsed time: {convert_seconds_to_hms(elapsed_seconds)} "
-              f"Completed: {percent_complete}% {round(seg.get('end'), 2)}/{round(info.get('duration'), 2)} seconds "
+              f"Completed: {percent_completed}% {round(seg.get('end'), 2)}/{round(info.get('duration'), 2)} seconds "
               f"Estimated {convert_seconds_to_hms(estimated_remaining_seconds)} remaining"
               , end="\r")
 
@@ -100,7 +99,8 @@ def main():
                         help="Files to process")
     parser.add_argument("--beam-size", type=int, default=5,
                         help="Beam size")
-    parser.add_argument("--compute-type", type=str, choices=("float16", "int8_float16", "int8", "float32"),
+    parser.add_argument("--compute-type", type=str,
+                        choices=("float16", "int8_float16", "int8", "float32", "bfloat16"),
                         default="float16",
                         help="Compute type")
     parser.add_argument("--cpu-threads", type=int, default=4,
@@ -128,7 +128,7 @@ def main():
                          device_index=args.device_index, local_files_only=True, cpu_threads=args.cpu_threads)
     #logging.debug("Model Loaded")
     print("Loaded Model")
-    print("Begin Processing Files...\n")
+    print("Begin Processing Files...")
 
     if len(args.files) <= 1 or (len(args.device_index) <= 1 or args.cpu_threads <= 1):
         for file in args.files:
